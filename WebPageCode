@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Blink Morse Code Communicator</title>
+  <meta name="viewport" content="width=900, initial-scale=1.0">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;400&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background: #1e1e2f;
+      color: #fff;
+      font-family: 'Montserrat', Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      text-align: center;
+      padding: 32px 10px 10px 10px;
+      background: #23234a;
+      border-bottom: 2px solid #00ffe1;
+    }
+    header h1 {
+      color: #00ffe1;
+      margin-bottom: 8px;
+      font-size: 2.3rem;
+      letter-spacing: 1px;
+    }
+    header p {
+      color: #fff;
+      font-size: 1.1rem;
+      margin-top: 0;
+    }
+    main {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: flex-start;
+      margin: 0 auto;
+      max-width: 1200px;
+      padding: 30px 10px 10px 10px;
+    }
+    .left, .right {
+      flex: 1 1 400px;
+      min-width: 400px;
+      max-width: 600px;
+      margin: 10px;
+      background: #23234a;
+      border-radius: 18px;
+      box-shadow: 0 6px 32px rgba(0,0,0,0.18);
+      padding: 24px;
+    }
+    .left {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #webcam, #overlay {
+      border-radius: 12px;
+      width: 100%;
+      max-width: 500px;
+      height: auto;
+      background: #111;
+      margin-bottom: 12px;
+    }
+    .status-panel {
+      width: 100%;
+      text-align: left;
+      margin-top: 10px;
+      font-size: 1.1rem;
+    }
+    .status-panel span {
+      font-weight: bold;
+      color: #00ff99;
+    }
+    .morse {
+      color: #ffff66;
+      font-size: 1.2rem;
+      letter-spacing: 2px;
+    }
+    .backspace {
+      color: #ff6666;
+      font-weight: bold;
+      margin-top: 8px;
+    }
+    .cooldown {
+      color: #ffcc00;
+      font-weight: bold;
+      margin-top: 8px;
+    }
+    .scroll-message-container {
+      width: 100%;
+      max-width: 100%;
+      background: #1a1f33;
+      border-radius: 8px;
+      margin-top: 10px;
+      margin-bottom: 10px;
+      padding: 0;
+      box-sizing: border-box;
+      border: 1px solid #23234a;
+    }
+    #scroll-msg {
+      width: 100%;
+      max-width: 100%;
+      min-height: 60px;
+      max-height: 120px;
+      background: #1a1f33;
+      color: #90ee90;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 1.15rem;
+      border: none;
+      resize: none;
+      overflow-y: auto;
+      outline: none;
+      padding: 12px 10px 12px 10px;
+      box-sizing: border-box;
+      border-radius: 8px;
+    }
+    .lang-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    #langSelect {
+      background: #23234a;
+      color: #00fff7;
+      font-size: 1rem;
+      border: none;
+      border-radius: 8px;
+      padding: 7px 14px;
+      font-family: inherit;
+      font-weight: bold;
+      outline: none;
+      transition: background 0.2s;
+    }
+    #langSelect:focus {
+      background: #23234a;
+      color: #00ffe1;
+    }
+    .save-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+      margin-bottom: 8px;
+    }
+    .toggle-switch {
+      width: 44px;
+      height: 24px;
+      background: #23234a;
+      border-radius: 12px;
+      border: 2px solid #00ffe1;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-right: 8px;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .toggle-switch.on {
+      background: #00ffe1;
+      border-color: #00ffe1;
+    }
+    .toggle-knob {
+      width: 18px;
+      height: 18px;
+      background: #23234a;
+      border-radius: 50%;
+      position: absolute;
+      top: 1px;
+      left: 1px;
+      transition: left 0.2s, background 0.2s;
+      border: 2px solid #00ffe1;
+    }
+    .toggle-switch.on .toggle-knob {
+      left: 21px;
+      background: #23234a;
+      border-color: #23234a;
+    }
+    .save-btn {
+      background: #00ffe1;
+      color: #23234a;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 22px;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-left: 4px;
+    }
+    .save-btn:disabled {
+      background: #23234a;
+      color: #00ffe1;
+      cursor: not-allowed;
+      border: 1px solid #00ffe1;
+    }
+  </style>
+  <!-- MediaPipe FaceMesh via TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Blink Morse Code Communicator</h1>
+    <p>Type messages with your eyes — Morse code via blinks and winks</p>
+  </header>
+  <main>
+    <div class="left">
+      <div class="lang-group">
+        <label for="langSelect" style="color:#00ffe1;font-weight:bold;">Language:</label>
+        <select id="langSelect">
+          <option value="english">English</option>
+          <option value="greek">Greek</option>
+          <option value="russian">Russian</option>
+          <option value="arabic">Arabic</option>
+          <option value="japanese">Japanese</option>
+        </select>
+      </div>
+      <label for="cameraSelect" style="color:#00ffe1;font-weight:bold;">Select Camera:</label>
+      <select id="cameraSelect"></select>
+      <video id="webcam" autoplay playsinline muted width="500" height="375"></video>
+      <canvas id="overlay" width="500" height="375"></canvas>
+      <div class="status-panel">
+        <div><span>Morse:</span> <span id="morse-seq" class="morse"></span></div>
+        <div><span>Message:</span></div>
+      </div>
+      <div class="scroll-message-container">
+        <textarea id="scroll-msg" readonly></textarea>
+      </div>
+      <div id="backspace-indicator" class="backspace"></div>
+      <div id="cooldown-indicator" class="cooldown"></div>
+      <div class="save-group">
+        <div id="save-toggle" class="toggle-switch" tabindex="0" role="button" aria-pressed="false">
+          <div class="toggle-knob"></div>
+        </div>
+        <span style="color:#00ffe1;font-weight:bold;">Enable Save</span>
+        <button class="save-btn" id="save-btn" disabled>Save</button>
+      </div>
+    </div>
+    <div class="right">
+      <div class="instructions">
+        <h2>How It Works</h2>
+        <ul>
+          <li>Blink both eyes quickly for a <b>dot</b> (·)</li>
+          <li>Blink both eyes longer for a <b>dash</b> (–)</li>
+          <li>Wink (one eye closed) for more than 2 seconds to enter <b>backspace mode</b>. One letter will be deleted every second.</li>
+          <li>Stop blinking for 0.7 seconds to finalize a <b>letter</b></li>
+          <li>Stop blinking for 4 seconds to finalize a <b>word</b></li>
+        </ul>
+      </div>
+      <div class="faq">
+        <h2>FAQ</h2>
+        <b>What is Morse code?</b><br>
+        A system of dots and dashes representing letters and numbers.<br><br>
+        <b>Is my webcam data safe?</b><br>
+        All processing is done locally in your browser. No data is uploaded.<br><br>
+        <b>Who is this for?</b><br>
+        Anyone, especially people with motor disabilities, who want an alternative communication method.<br><br>
+        <b>Having trouble?</b><br>
+        Ensure your face is well-lit and fully visible to the camera.<br>
+        Try adjusting your blink/wink speed.
+      </div>
+      <div class="about">
+        <h2>About</h2>
+        <b>SDG 3 & SDG 10:</b> Promoting health and reducing inequalities with inclusive technology.<br>
+        <b>Open Source:</b> <a href="https://github.com/your-repo" style="color:#00ffe1;">GitHub</a><br>
+        <b>Contact:</b> youremail@example.com
+      </div>
+    </div>
+  </main>
+  <footer>
+    &copy; 2025 Blink Morse Code Communicator — All rights reserved.
+  </footer>
+  <script>
+    // Morse code dictionaries for multiple languages
+    const MORSE_MAPS = {
+      english: {
+        '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E',
+        '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J',
+        '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O',
+        '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T',
+        '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y',
+        '--..': 'Z', '.----': '1', '..---': '2', '...--': '3',
+        '....-': '4', '.....': '5', '-....': '6', '--...': '7',
+        '---..': '8', '----.': '9', '-----': '0'
+      },
+      greek: {
+        '.-': 'Α', '-...': 'Β', '--.': 'Γ', '-..': 'Δ', '.': 'Ε',
+        '...-': 'Ζ', '--..': 'Η', '..': 'Ι', '.---': 'Ξ', '-.-': 'Κ',
+        '.-..': 'Λ', '--': 'Μ', '-.': 'Ν', '---': 'Ο', '.--.': 'Π',
+        '--.-': 'Θ', '.-.': 'Ρ', '...': 'Σ', '-': 'Τ', '..-': 'Υ',
+        '..-.': 'Φ', '....': 'Χ', '-.-.': 'Ψ', '--.': 'Ω'
+      },
+      russian: {
+        '.-': 'А', '-...': 'Б', '.--': 'В', '--.': 'Г', '-..': 'Д',
+        '.': 'Е', '...-': 'Ж', '--..': 'З', '..': 'И', '.---': 'Й',
+        '-.-': 'К', '.-..': 'Л', '--': 'М', '-.': 'Н', '---': 'О',
+        '.--.': 'П', '.-.': 'Р', '...': 'С', '-': 'Т', '..-': 'У',
+        '..-.': 'Ф', '....': 'Х', '-.-.': 'Ц', '---.': 'Ч', '----': 'Ш',
+        '--.-': 'Щ', '--.--': 'Ы', '-.--': 'Ь', '-..-': 'Э', '..-..': 'Ю', '..--': 'Я'
+      },
+      arabic: {
+        '.-': 'ا', '-...': 'ب', '-.-.': 'ج', '-..': 'د', '.': 'ه',
+        '..-.': 'ف', '--.': 'غ', '....': 'ح', '..': 'ي', '.---': 'خ',
+        '-.-': 'ك', '.-..': 'ل', '--': 'م', '-.': 'ن', '---': 'و',
+        '.--.': 'پ', '--.-': 'ق', '.-.': 'ر', '...': 'س', '-': 'ت',
+        '..-': 'ث', '...-': 'ش', '.--': 'ص', '-..-': 'ض', '-.--': 'ظ',
+        '--..': 'ز'
+      },
+      japanese: {
+        '.-': 'イ', '-...': 'ロ', '-.-.': 'ハ', '-..': 'ニ', '.': 'ホ',
+        '..-.': 'ヘ', '--.': 'ト', '....': 'チ', '..': 'リ', '.---': 'ヌ',
+        '-.-': 'ル', '.-..': 'ヲ', '--': 'ワ', '-.': 'カ', '---': 'ヨ',
+        '.--.': 'タ', '--.-': 'レ', '.-.': 'ソ', '...': 'ツ', '-': 'ネ',
+        '..-': 'ナ', '...-': 'ラ', '.--': 'ム', '-..-': 'ウ', '-.--': 'ヰ',
+        '--..': 'ノ'
+      }
+    };
+
+    let currentLang = 'english';
+    document.getElementById('langSelect').addEventListener('change', function(e) {
+      currentLang = e.target.value;
+    });
+
+    // Eye landmark indices (MediaPipe)
+    const LEFT_EYE = [33, 160, 158, 133, 153, 144];
+    const RIGHT_EYE = [362, 385, 387, 263, 373, 380];
+
+    // Thresholds and timings
+    const EAR_THRESHOLD = 0.21;
+    const DOT_DURATION = 0.3;
+    const LETTER_PAUSE = 0.7;
+    const WORD_PAUSE = 4.0;
+    const WINK_DURATION = 2.0;
+    const DELETE_INTERVAL = 1.0;
+    const COOLDOWN_AFTER_BACKSPACE = 1.0;
+    const WINK_ACTIVATION_DELAY = 0.5;
+
+    // State variables
+    let state = 'open';
+    let blinkStart = null;
+    let lastBlinkTime = Date.now() / 1000;
+    let morse = '';
+    let decoded = '';
+    let backspaceMode = false;
+    let backspaceStart = 0;
+    let lastDeleteTime = 0;
+    let ignoreInputUntil = 0;
+
+    // UI elements
+    const morseSeq = document.getElementById('morse-seq');
+    const scrollMsg = document.getElementById('scroll-msg');
+    const backspaceIndicator = document.getElementById('backspace-indicator');
+    const cooldownIndicator = document.getElementById('cooldown-indicator');
+
+    // Webcam and canvas
+    const video = document.getElementById('webcam');
+    const overlay = document.getElementById('overlay');
+    const ctx = overlay.getContext('2d');
+
+    // Utility: Compute EAR
+    function computeEAR(landmarks, indices) {
+      function dist(a, b) {
+        return Math.hypot(a.x - b.x, a.y - b.y);
+      }
+      const p = indices.map(i => landmarks[i]);
+      const vert1 = dist(p[1], p[5]);
+      const vert2 = dist(p[2], p[4]);
+      const horiz = dist(p[0], p[3]);
+      return (vert1 + vert2) / (2.0 * horiz);
+    }
+
+    // Camera selection and stream management
+    let currentStream = null;
+    const cameraSelect = document.getElementById('cameraSelect');
+
+    async function getCameras() {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      cameraSelect.innerHTML = '';
+      videoDevices.forEach((device, i) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.text = device.label || `Camera ${i+1}`;
+        cameraSelect.appendChild(option);
+      });
+    }
+
+    async function startCamera(deviceId) {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+      const constraints = {
+        video: { deviceId: { exact: deviceId }, width: 500, height: 375 }
+      };
+      currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = currentStream;
+    }
+
+    cameraSelect.addEventListener('change', async (e) => {
+      await startCamera(e.target.value);
+      if (faceMesh) {
+        camera.stop();
+        camera = new Camera(video, {
+          onFrame: async () => {
+            await faceMesh.send({image: video});
+          },
+          width: 500,
+          height: 375
+        });
+        camera.start();
+      }
+    });
+
+    // MediaPipe FaceMesh setup
+    let faceMesh;
+    let camera;
+
+    async function setupFaceMesh() {
+      faceMesh = new FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+      });
+      faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+      faceMesh.onResults(onResults);
+    }
+
+    // Main detection loop
+    async function startDetection() {
+      await getCameras();
+      if (cameraSelect.options.length > 0) {
+        await startCamera(cameraSelect.options[0].value);
+      }
+      await setupFaceMesh();
+      camera = new Camera(video, {
+        onFrame: async () => {
+          await faceMesh.send({image: video});
+        },
+        width: 500,
+        height: 375
+      });
+      camera.start();
+    }
+
+    function onResults(results) {
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+        drawConnectors(ctx, landmarks, FACEMESH_TESSELATION, {color: '#00ffe1', lineWidth: 0.5});
+        drawLandmarks(ctx, LEFT_EYE.map(i => landmarks[i]), {color: '#ffff66', lineWidth: 2});
+        drawLandmarks(ctx, RIGHT_EYE.map(i => landmarks[i]), {color: '#ffff66', lineWidth: 2});
+
+        const leftEAR = computeEAR(landmarks, LEFT_EYE);
+        const rightEAR = computeEAR(landmarks, RIGHT_EYE);
+        const now = Date.now() / 1000;
+
+        // --- CORRECTED BACKSPACE LOGIC START ---
+        const winkDetected = (leftEAR < EAR_THRESHOLD && rightEAR > EAR_THRESHOLD) ||
+                             (rightEAR < EAR_THRESHOLD && leftEAR > EAR_THRESHOLD);
+
+        if (winkDetected) {
+          if (!backspaceMode) {
+            if (backspaceStart === 0) {
+              backspaceStart = now;
+            } else if (now - backspaceStart >= WINK_ACTIVATION_DELAY) {
+              backspaceMode = true;
+              lastDeleteTime = now;
+            }
+          }
+        } else {
+          if (backspaceMode) {
+            ignoreInputUntil = now + COOLDOWN_AFTER_BACKSPACE;
+          }
+          backspaceMode = false;
+          backspaceStart = 0;
+        }
+
+        if (backspaceMode && now - backspaceStart >= WINK_DURATION) {
+          if (now - lastDeleteTime >= DELETE_INTERVAL && decoded.length > 0) {
+            decoded = decoded.slice(0, -1);
+            lastDeleteTime = now;
+          }
+        }
+        // --- CORRECTED BACKSPACE LOGIC END ---
+
+        if (now > ignoreInputUntil && !backspaceMode) {
+          if (leftEAR < EAR_THRESHOLD && rightEAR < EAR_THRESHOLD) {
+            if (state === 'open') {
+              blinkStart = now;
+              state = 'closed';
+            }
+          } else if (leftEAR >= EAR_THRESHOLD && rightEAR >= EAR_THRESHOLD) {
+            if (state === 'closed') {
+              const blinkDuration = now - blinkStart;
+              if (blinkDuration < DOT_DURATION) {
+                morse += '.';
+              } else {
+                morse += '-';
+              }
+              lastBlinkTime = now;
+              state = 'open';
+            }
+          }
+        }
+
+        const pause = now - lastBlinkTime;
+        if (state === 'open') {
+          if (morse && pause >= LETTER_PAUSE && now > ignoreInputUntil) {
+            const char = MORSE_MAPS[currentLang][morse] || '?';
+            decoded += char;
+            morse = '';
+            lastBlinkTime = now;
+          } else if (!morse && pause >= WORD_PAUSE) {
+            decoded += ' ';
+            lastBlinkTime = now;
+          }
+        }
+
+        morseSeq.textContent = morse;
+        scrollMsg.value = decoded;
+        scrollMsg.scrollTop = scrollMsg.scrollHeight;
+        backspaceIndicator.textContent = backspaceMode ? "Backspace Mode Active" : "";
+        cooldownIndicator.textContent = (now < ignoreInputUntil && !backspaceMode) ? "Cooldown..." : "";
+      }
+    }
+
+    // Save toggle and button logic
+    const saveToggle = document.getElementById('save-toggle');
+    const saveBtn = document.getElementById('save-btn');
+    let saveEnabled = false;
+
+    saveToggle.addEventListener('click', function() {
+      saveEnabled = !saveEnabled;
+      if (saveEnabled) {
+        saveToggle.classList.add('on');
+        saveToggle.setAttribute('aria-pressed', 'true');
+        saveBtn.disabled = false;
+      } else {
+        saveToggle.classList.remove('on');
+        saveToggle.setAttribute('aria-pressed', 'false');
+        saveBtn.disabled = true;
+      }
+    });
+
+    saveToggle.addEventListener('keydown', function(e) {
+      if (e.key === ' ' || e.key === 'Enter') {
+        saveToggle.click();
+      }
+    });
+
+    saveBtn.addEventListener('click', function() {
+      if (!saveEnabled) return;
+      const lang = currentLang.charAt(0).toUpperCase() + currentLang.slice(1);
+      const morseText = morseSeq.textContent;
+      const message = scrollMsg.value;
+      const content = `Blink Morse Code Communicator\nLanguage: ${lang}\nMorse: ${morseText}\nMessage:\n${message}\n`;
+      const blob = new Blob([content], {type: "text/plain"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = "morse_message.txt";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    window.onload = startDetection;
+  </script>
+</body>
+</html>
