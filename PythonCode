@@ -1,0 +1,291 @@
+import cv2
+import mediapipe as mp
+import numpy as np
+import time
+import tkinter as tk
+from tkinter import scrolledtext, filedialog
+from PIL import Image, ImageTk
+
+# Morse code dictionaries for multiple languages
+MORSE_MAPS = {
+    "english": {
+        '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E',
+        '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J',
+        '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O',
+        '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T',
+        '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y',
+        '--..': 'Z', '.----': '1', '..---': '2', '...--': '3',
+        '....-': '4', '.....': '5', '-....': '6', '--...': '7',
+        '---..': '8', '----.': '9', '-----': '0'
+    },
+    "greek": {
+        '.-': 'Α', '-...': 'Β', '--.': 'Γ', '-..': 'Δ', '.': 'Ε',
+        '...-': 'Ζ', '--..': 'Η', '..': 'Ι', '.---': 'Ξ', '-.-': 'Κ',
+        '.-..': 'Λ', '--': 'Μ', '-.': 'Ν', '---': 'Ο', '.--.': 'Π',
+        '--.-': 'Θ', '.-.': 'Ρ', '...': 'Σ', '-': 'Τ', '..-': 'Υ',
+        '..-.': 'Φ', '....': 'Χ', '-.-.': 'Ψ', '--.': 'Ω'
+    },
+    "russian": {
+        '.-': 'А', '-...': 'Б', '.--': 'В', '--.': 'Г', '-..': 'Д',
+        '.': 'Е', '...-': 'Ж', '--..': 'З', '..': 'И', '.---': 'Й',
+        '-.-': 'К', '.-..': 'Л', '--': 'М', '-.': 'Н', '---': 'О',
+        '.--.': 'П', '.-.': 'Р', '...': 'С', '-': 'Т', '..-': 'У',
+        '..-.': 'Ф', '....': 'Х', '-.-.': 'Ц', '---.': 'Ч', '----': 'Ш',
+        '--.-': 'Щ', '--.--': 'Ы', '-.--': 'Ь', '-..-': 'Э', '..-..': 'Ю', '..--': 'Я'
+    },
+    "arabic": {
+        '.-': 'ا', '-...': 'ب', '-.-.': 'ج', '-..': 'د', '.': 'ه',
+        '..-.': 'ف', '--.': 'غ', '....': 'ح', '..': 'ي', '.---': 'خ',
+        '-.-': 'ك', '.-..': 'ل', '--': 'م', '-.': 'ن', '---': 'و',
+        '.--.': 'پ', '--.-': 'ق', '.-.': 'ر', '...': 'س', '-': 'ت',
+        '..-': 'ث', '...-': 'ش', '.--': 'ص', '-..-': 'ض', '-.--': 'ظ',
+        '--..': 'ز'
+    },
+    "japanese": {
+        # Wabun code (partial, expand as needed)
+        '.-': 'イ', '-...': 'ロ', '-.-.': 'ハ', '-..': 'ニ', '.': 'ホ',
+        '..-.': 'ヘ', '--.': 'ト', '....': 'チ', '..': 'リ', '.---': 'ヌ',
+        '-.-': 'ル', '.-..': 'ヲ', '--': 'ワ', '-.': 'カ', '---': 'ヨ',
+        '.--.': 'タ', '--.-': 'レ', '.-.': 'ソ', '...': 'ツ', '-': 'ネ',
+        '..-': 'ナ', '...-': 'ラ', '.--': 'ム', '-..-': 'ウ', '-.--': 'ヰ',
+        '--..': 'ノ'
+    }
+}
+current_language = "english"
+
+# Eye landmark indices (MediaPipe)
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True)
+LEFT_EYE = [33, 160, 158, 133, 153, 144]
+RIGHT_EYE = [362, 385, 387, 263, 373, 380]
+
+# EAR Calculation
+def compute_EAR(landmarks, indices, w, h):
+    p = [np.array([landmarks[i].x * w, landmarks[i].y * h]) for i in indices]
+    vert1 = np.linalg.norm(p[1] - p[5])
+    vert2 = np.linalg.norm(p[2] - p[4])
+    horiz = np.linalg.norm(p[0] - p[3])
+    ear = (vert1 + vert2) / (2.0 * horiz)
+    return ear
+
+# Configurations
+EAR_THRESHOLD = 0.21
+DOT_DURATION = 0.3
+LETTER_PAUSE = 0.7
+WORD_PAUSE = 4.0
+WINK_DURATION = 2.0
+DELETE_INTERVAL = 1.0
+COOLDOWN_AFTER_BACKSPACE = 1.0
+WINK_ACTIVATION_DELAY = 0.5
+
+# Blink logic state
+state = 'open'
+blink_start = None
+last_blink_time = time.time()
+morse = ''
+decoded = ''
+backspace_mode = False
+backspace_start = 0
+last_delete_time = 0
+ignore_input_until = 0
+
+cap = cv2.VideoCapture(0)
+
+# GUI Setup
+tk_root = tk.Tk()
+tk_root.title("Blink Morse Code Communicator")
+tk_root.geometry("1200x820")
+tk_root.configure(bg="#0f111a")
+
+tk_canvas = tk.Canvas(tk_root, bg="#0f111a", highlightthickness=0)
+tk_canvas.pack(fill="both", expand=True)
+
+# Title
+tk_canvas.create_text(
+    540, 40,
+    text="Blink Morse Code Communicator",
+    fill="#00fff7",
+    font=("Helvetica", 28, "bold"),
+)
+
+# Webcam Frame Box
+img_border = tk_canvas.create_rectangle(
+    140, 90, 940, 520,
+    fill="#1a2238", outline="#00ffe0", width=3
+)
+img_container = tk.Label(tk_root, bg="#1a2238")
+img_container.place(x=140, y=90, width=800, height=430)
+
+# Language selector
+def set_language(event=None):
+    global current_language
+    current_language = lang_var.get()
+
+lang_var = tk.StringVar(value="english")
+lang_menu = tk.OptionMenu(tk_root, lang_var, *MORSE_MAPS.keys(), command=set_language)
+lang_menu.config(font=("Helvetica", 12), bg="#23234a", fg="#00fff7", highlightthickness=0, bd=0, activebackground="#23234a", activeforeground="#00ffe0")
+lang_menu.place(x=1000, y=40, width=170, height=35)
+
+tk_canvas.create_text(1080, 30, text="Language", fill="#00fff7", font=("Helvetica", 14, "bold"))
+
+# Morse label (static)
+morse_label_bg = tk_canvas.create_rectangle(180, 540, 900, 620, fill="#1a1f33", outline="")
+tk_canvas.create_text(200, 560, anchor="nw", text="Morse", fill="#999999", font=("Courier", 14, "bold"))
+morse_label = tk_canvas.create_text(200, 590, anchor="nw", text="", fill="#00ffcc", font=("Courier", 18, "bold"))
+
+# Message label replaced with scrolled text
+msg_frame = tk.Frame(tk_root, bg="#1a1f33")
+msg_frame.place(x=180, y=630, width=720, height=120)
+tk.Label(msg_frame, text="Message", bg="#1a1f33", fg="#999999", font=("Courier", 14, "bold")).place(x=10, y=5)
+msg_text = scrolledtext.ScrolledText(
+    msg_frame, wrap="word", font=("Courier", 18, "bold"),
+    bg="#1a1f33", fg="#90ee90", insertbackground="#90ee90", borderwidth=0, relief="flat"
+)
+msg_text.place(x=10, y=35, width=700, height=75)
+msg_text.configure(state="disabled")
+
+backspace_label = tk_canvas.create_text(
+    540, 700,
+    text="",
+    fill="#ff6666",
+    font=("Courier", 16, "italic")
+)
+
+# Save toggle and button
+save_enabled = tk.BooleanVar(value=False)
+def toggle_save():
+    save_enabled.set(not save_enabled.get())
+    if save_enabled.get():
+        save_toggle_btn.config(bg="#00ffe0", fg="#23234a", activebackground="#00bfa3")
+        save_btn.config(state="normal")
+    else:
+        save_toggle_btn.config(bg="#23234a", fg="#00fff7", activebackground="#23234a")
+        save_btn.config(state="disabled")
+
+save_toggle_btn = tk.Button(
+    tk_root, text="Enable Save", command=toggle_save,
+    font=("Helvetica", 12, "bold"),
+    bg="#23234a", fg="#00fff7", bd=0, highlightthickness=0,
+    activebackground="#23234a", activeforeground="#00ffe0"
+)
+save_toggle_btn.place(x=1000, y=90, width=170, height=35)
+
+def save_to_file():
+    file_path = filedialog.asksaveasfilename(
+        defaultextension=".txt",
+        filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
+    )
+    if file_path:
+        content = (
+            f"Blink Morse Code Communicator\n"
+            f"Language: {current_language}\n"
+            f"Morse: {morse}\n"
+            f"Message:\n{decoded}\n"
+        )
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+save_btn = tk.Button(
+    tk_root, text="Save", command=save_to_file,
+    font=("Helvetica", 12, "bold"),
+    bg="#23234a", fg="#00fff7", bd=0, highlightthickness=0,
+    activebackground="#00ffe0", activeforeground="#23234a",
+    state="disabled"
+)
+save_btn.place(x=1000, y=140, width=170, height=35)
+
+# Privacy statement
+tk_canvas.create_text(
+    600, 800,
+    text="All processing is local and private. No data is sent to the internet.",
+    fill="#888888",
+    font=("Helvetica", 11, "italic")
+)
+
+# GUI Update Loop
+def update():
+    global state, blink_start, last_blink_time, morse, decoded
+    global backspace_mode, backspace_start, last_delete_time, ignore_input_until
+    ret, frame = cap.read()
+    if not ret:
+        tk_root.after(10, update)
+        return
+
+    frame = cv2.flip(frame, 1)
+    h, w, _ = frame.shape
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = face_mesh.process(rgb)
+    now = time.time()
+
+    if results.multi_face_landmarks:
+        landmarks = results.multi_face_landmarks[0].landmark
+        left_ear = compute_EAR(landmarks, LEFT_EYE, w, h)
+        right_ear = compute_EAR(landmarks, RIGHT_EYE, w, h)
+
+        wink_left = left_ear < EAR_THRESHOLD and right_ear > EAR_THRESHOLD
+        wink_right = right_ear < EAR_THRESHOLD and left_ear > EAR_THRESHOLD
+        wink_detected = wink_left or wink_right
+
+        if wink_detected:
+            if not backspace_mode:
+                if backspace_start == 0:
+                    backspace_start = now
+                elif now - backspace_start >= WINK_ACTIVATION_DELAY:
+                    backspace_mode = True
+                    last_delete_time = now
+        else:
+            if backspace_mode:
+                ignore_input_until = now + COOLDOWN_AFTER_BACKSPACE
+            backspace_mode = False
+            backspace_start = 0
+
+        if backspace_mode and now - backspace_start >= WINK_DURATION:
+            if now - last_delete_time >= DELETE_INTERVAL and decoded:
+                decoded = decoded[:-1]
+                last_delete_time = now
+
+        if now > ignore_input_until and not backspace_mode:
+            if left_ear < EAR_THRESHOLD and right_ear < EAR_THRESHOLD:
+                if state == 'open':
+                    blink_start = now
+                    state = 'closed'
+            elif left_ear >= EAR_THRESHOLD and right_ear >= EAR_THRESHOLD:
+                if state == 'closed':
+                    blink_duration = now - blink_start
+                    if blink_duration < DOT_DURATION:
+                        morse += '.'
+                    else:
+                        morse += '-'
+                    last_blink_time = now
+                    state = 'open'
+
+    pause = now - last_blink_time
+    if state == 'open':
+        if morse and pause >= LETTER_PAUSE and now > ignore_input_until:
+            decoded += MORSE_MAPS[current_language].get(morse, '?')
+            morse = ''
+            last_blink_time = now
+        elif not morse and pause >= WORD_PAUSE:
+            decoded += ' '
+            last_blink_time = now
+
+    tk_canvas.itemconfig(morse_label, text=morse)
+    # Update message in scrolled text
+    msg_text.configure(state="normal")
+    msg_text.delete("1.0", tk.END)
+    msg_text.insert(tk.END, decoded)
+    msg_text.configure(state="disabled")
+    tk_canvas.itemconfig(backspace_label, text="Backspace Mode Active" if backspace_mode else "")
+
+    img = Image.fromarray(rgb)
+    img = img.resize((800, 430))
+    imgtk = ImageTk.PhotoImage(image=img)
+    img_container.imgtk = imgtk
+    img_container.configure(image=imgtk)
+
+    tk_root.after(10, update)
+
+update()
+tk_root.mainloop()
+cap.release()
+cv2.destroyAllWindows()
