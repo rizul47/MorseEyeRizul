@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import scrolledtext, filedialog
 from PIL import Image, ImageTk
 
-# Morse code dictionaries for multiple languages
+# Enhanced Morse code dictionaries with disambiguation support
 MORSE_MAPS = {
     "english": {
         '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E',
@@ -22,8 +22,8 @@ MORSE_MAPS = {
         '.-': 'Α', '-...': 'Β', '--.': 'Γ', '-..': 'Δ', '.': 'Ε',
         '...-': 'Ζ', '--..': 'Η', '..': 'Ι', '.---': 'Ξ', '-.-': 'Κ',
         '.-..': 'Λ', '--': 'Μ', '-.': 'Ν', '---': 'Ο', '.--.': 'Π',
-        '--.-': 'Θ', '.-.': 'Ρ', '...': 'Σ', '-': 'Τ', '..-': 'Υ',
-        '..-.': 'Φ', '....': 'Χ', '-.-.': 'Ψ', '--.': 'Ω'
+        '--.-': 'Ψ', '.-.': 'Ρ', '...': 'Σ', '-': 'Τ', '..-': 'Υ',
+        '..-.': 'Φ', '....': 'Χ', '-.-.': 'Θ', '--.': 'Ω'
     },
     "russian": {
         '.-': 'А', '-...': 'Б', '.--': 'В', '--.': 'Г', '-..': 'Д',
@@ -42,7 +42,6 @@ MORSE_MAPS = {
         '--..': 'ز'
     },
     "japanese": {
-        # Wabun code (partial, expand as needed)
         '.-': 'イ', '-...': 'ロ', '-.-.': 'ハ', '-..': 'ニ', '.': 'ホ',
         '..-.': 'ヘ', '--.': 'ト', '....': 'チ', '..': 'リ', '.---': 'ヌ',
         '-.-': 'ル', '.-..': 'ヲ', '--': 'ワ', '-.': 'カ', '---': 'ヨ',
@@ -51,7 +50,56 @@ MORSE_MAPS = {
         '--..': 'ノ'
     }
 }
+
+# Universal ambiguous mappings for all languages
+AMBIGUOUS_MAPPINGS = {
+    "english": {},
+    "greek": {
+        '--.-': ['Ψ', 'Θ'],
+        '--.': ['Γ', 'Ω']
+    },
+    "russian": {
+        '--.': ['Г', 'В'],
+        '..': ['И', 'Й'],
+        '-.-.': ['Ц', 'Ч'],
+        '.--': ['В', 'Ж']
+    },
+    "arabic": {
+        '.-': ['ا', 'ع'],
+        '..': ['ي', 'ت'],
+        '--.': ['غ', 'ق'],
+        '-.-.': ['ج', 'خ']
+    },
+    "japanese": {
+        '.-': ['イ', 'ア'],
+        '--': ['ワ', 'ム'],
+        '-.': ['カ', 'ナ'],
+        '..': ['リ', 'ニ'],
+        '...': ['ツ', 'サ'],
+        '-..': ['ニ', 'ド'],
+        '.--': ['ム', 'ウ']
+    }
+}
+
+# Create base mappings using first option as default
+for lang, ambiguous in AMBIGUOUS_MAPPINGS.items():
+    for morse, chars in ambiguous.items():
+        if morse in MORSE_MAPS[lang]:
+            continue
+        else:
+            MORSE_MAPS[lang][morse] = chars[0]
+
 current_language = "english"
+
+# Enhanced selection system variables
+selection_mode = False
+selection_options = []
+selection_start_time = 0
+selection_morse = ''
+last_selection_blink = 0
+SELECTION_TIMEOUT = 8.0
+SELECTION_DOT_DURATION = 0.3
+SELECTION_BLINK_COOLDOWN = 0.3
 
 # Eye landmark indices (MediaPipe)
 mp_face_mesh = mp.solutions.face_mesh
@@ -68,11 +116,69 @@ def compute_EAR(landmarks, indices, w, h):
     ear = (vert1 + vert2) / (2.0 * horiz)
     return ear
 
+# Universal disambiguation function
+def decode_morse_with_disambiguation(morse_sequence, language):
+    global selection_mode, selection_options, selection_start_time, selection_morse
+    
+    if language in AMBIGUOUS_MAPPINGS and morse_sequence in AMBIGUOUS_MAPPINGS[language]:
+        selection_mode = True
+        selection_options = AMBIGUOUS_MAPPINGS[language][morse_sequence]
+        selection_start_time = time.time()
+        selection_morse = ''
+        return None
+    else:
+        return MORSE_MAPS[language].get(morse_sequence, '?')
+
+def handle_selection_blink(blink_duration):
+    global selection_mode, selection_morse, last_selection_blink
+    global decoded, selection_options
+    
+    now = time.time()
+    if now - last_selection_blink < SELECTION_BLINK_COOLDOWN:
+        return
+    
+    last_selection_blink = now
+    
+    if blink_duration < SELECTION_DOT_DURATION:
+        selection_morse += '.'
+    else:
+        selection_morse += '-'
+
+def process_selection_morse():
+    global selection_mode, selection_morse, decoded, selection_options
+    
+    if selection_morse == '.':
+        decoded += selection_options[0]
+        selection_mode = False
+        selection_morse = ''
+    elif selection_morse == '-':
+        if len(selection_options) > 1:
+            decoded += selection_options[1]
+        else:
+            decoded += selection_options[0]
+        selection_mode = False
+        selection_morse = ''
+    elif selection_morse == '..':
+        if len(selection_options) > 2:
+            decoded += selection_options[2]
+        else:
+            decoded += selection_options[0]
+        selection_mode = False
+        selection_morse = ''
+    elif selection_morse == '--':
+        if len(selection_options) > 3:
+            decoded += selection_options[3]
+        else:
+            decoded += selection_options[0]
+        selection_mode = False
+        selection_morse = ''
+
 # Configurations
 EAR_THRESHOLD = 0.21
 DOT_DURATION = 0.3
 LETTER_PAUSE = 0.7
 WORD_PAUSE = 4.0
+SELECTION_LETTER_PAUSE = 1.0
 WINK_DURATION = 2.0
 DELETE_INTERVAL = 1.0
 COOLDOWN_AFTER_BACKSPACE = 1.0
@@ -91,67 +197,102 @@ ignore_input_until = 0
 
 cap = cv2.VideoCapture(0)
 
-# GUI Setup
+# GUI Setup - Fixed layout to prevent overlap
 tk_root = tk.Tk()
-tk_root.title("Blink Morse Code Communicator")
-tk_root.geometry("1200x820")
+tk_root.title("Universal Blink Morse Code Communicator")
+tk_root.geometry("1600x900")  # Increased width to fit everything
 tk_root.configure(bg="#0f111a")
 
 tk_canvas = tk.Canvas(tk_root, bg="#0f111a", highlightthickness=0)
 tk_canvas.pack(fill="both", expand=True)
 
-# Title
+# Title - centered properly
 tk_canvas.create_text(
-    540, 40,
-    text="Blink Morse Code Communicator",
+    800, 40,  # Centered for wider window
+    text="Universal Blink Morse Code Communicator",
     fill="#00fff7",
-    font=("Helvetica", 28, "bold"),
+    font=("Helvetica", 26, "bold"),
 )
 
-# Webcam Frame Box
+# Webcam Frame Box - kept same size but repositioned
 img_border = tk_canvas.create_rectangle(
-    140, 90, 940, 520,
+    50, 90, 850, 520,  # Moved left to make room for selection panel
     fill="#1a2238", outline="#00ffe0", width=3
 )
 img_container = tk.Label(tk_root, bg="#1a2238")
-img_container.place(x=140, y=90, width=800, height=430)
+img_container.place(x=50, y=90, width=800, height=430)
 
-# Language selector
+# Selection Panel - positioned to the right without overlap
+selection_panel_bg = tk_canvas.create_rectangle(
+    870, 90, 1550, 520,  # Positioned to the right of webcam
+    fill="#1a1f33", outline="#ffaa00", width=2, state="hidden"
+)
+
+# Selection panel title
+selection_panel_title = tk_canvas.create_text(
+    1210, 110,  # Centered in selection panel
+    text="Character Selection",
+    fill="#ffaa00",
+    font=("Helvetica", 16, "bold"),
+    state="hidden"
+)
+
+# Selection options display (will be created dynamically)
+selection_option_texts = []
+
+# Language selector - moved to fit new layout
 def set_language(event=None):
-    global current_language
+    global current_language, selection_mode
     current_language = lang_var.get()
+    selection_mode = False
 
 lang_var = tk.StringVar(value="english")
 lang_menu = tk.OptionMenu(tk_root, lang_var, *MORSE_MAPS.keys(), command=set_language)
 lang_menu.config(font=("Helvetica", 12), bg="#23234a", fg="#00fff7", highlightthickness=0, bd=0, activebackground="#23234a", activeforeground="#00ffe0")
-lang_menu.place(x=1000, y=40, width=170, height=35)
+lang_menu.place(x=1400, y=40, width=170, height=35)
 
-tk_canvas.create_text(1080, 30, text="Language", fill="#00fff7", font=("Helvetica", 14, "bold"))
+tk_canvas.create_text(1480, 30, text="Language", fill="#00fff7", font=("Helvetica", 14, "bold"))
 
-# Morse label (static)
-morse_label_bg = tk_canvas.create_rectangle(180, 540, 900, 620, fill="#1a1f33", outline="")
-tk_canvas.create_text(200, 560, anchor="nw", text="Morse", fill="#999999", font=("Courier", 14, "bold"))
-morse_label = tk_canvas.create_text(200, 590, anchor="nw", text="", fill="#00ffcc", font=("Courier", 18, "bold"))
+# Morse label - repositioned to not overlap
+morse_label_bg = tk_canvas.create_rectangle(70, 540, 830, 620, fill="#1a1f33", outline="")
+tk_canvas.create_text(90, 560, anchor="nw", text="Morse", fill="#999999", font=("Courier", 14, "bold"))
+morse_label = tk_canvas.create_text(90, 590, anchor="nw", text="", fill="#00ffcc", font=("Courier", 18, "bold"))
 
-# Message label replaced with scrolled text
+# Message frame - repositioned and resized
 msg_frame = tk.Frame(tk_root, bg="#1a1f33")
-msg_frame.place(x=180, y=630, width=720, height=120)
+msg_frame.place(x=70, y=630, width=760, height=120)
 tk.Label(msg_frame, text="Message", bg="#1a1f33", fg="#999999", font=("Courier", 14, "bold")).place(x=10, y=5)
 msg_text = scrolledtext.ScrolledText(
     msg_frame, wrap="word", font=("Courier", 18, "bold"),
     bg="#1a1f33", fg="#90ee90", insertbackground="#90ee90", borderwidth=0, relief="flat"
 )
-msg_text.place(x=10, y=35, width=700, height=75)
+msg_text.place(x=10, y=35, width=740, height=75)
 msg_text.configure(state="disabled")
 
+# Selection display - repositioned
+selection_label = tk_canvas.create_text(
+    800, 760,  # Centered for new layout
+    text="",
+    fill="#ffaa00",
+    font=("Courier", 12, "bold")
+)
+
 backspace_label = tk_canvas.create_text(
-    540, 700,
+    800, 780,  # Moved down to avoid overlap
     text="",
     fill="#ff6666",
     font=("Courier", 16, "italic")
 )
 
-# Save toggle and button
+# Language info display - repositioned
+lang_info_label = tk_canvas.create_text(
+    1480, 80,
+    text="",
+    fill="#888888",
+    font=("Helvetica", 10, "italic")
+)
+
+# Save controls - repositioned
 save_enabled = tk.BooleanVar(value=False)
 def toggle_save():
     save_enabled.set(not save_enabled.get())
@@ -168,7 +309,7 @@ save_toggle_btn = tk.Button(
     bg="#23234a", fg="#00fff7", bd=0, highlightthickness=0,
     activebackground="#23234a", activeforeground="#00ffe0"
 )
-save_toggle_btn.place(x=1000, y=90, width=170, height=35)
+save_toggle_btn.place(x=1400, y=120, width=170, height=35)
 
 def save_to_file():
     file_path = filedialog.asksaveasfilename(
@@ -177,7 +318,7 @@ def save_to_file():
     )
     if file_path:
         content = (
-            f"Blink Morse Code Communicator\n"
+            f"Universal Blink Morse Code Communicator\n"
             f"Language: {current_language}\n"
             f"Morse: {morse}\n"
             f"Message:\n{decoded}\n"
@@ -192,20 +333,97 @@ save_btn = tk.Button(
     activebackground="#00ffe0", activeforeground="#23234a",
     state="disabled"
 )
-save_btn.place(x=1000, y=140, width=170, height=35)
+save_btn.place(x=1400, y=170, width=170, height=35)
 
-# Privacy statement
+# Privacy statement - repositioned
 tk_canvas.create_text(
-    600, 800,
-    text="All processing is local and private. No data is sent to the internet.",
+    800, 850,  # Centered and moved down
+    text="All processing is local and private. Dot/Dash selection system active.",
     fill="#888888",
     font=("Helvetica", 11, "italic")
 )
+
+def update_selection_panel():
+    global selection_option_texts
+    
+    # Clear existing selection option texts
+    for text_id in selection_option_texts:
+        tk_canvas.delete(text_id)
+    selection_option_texts = []
+    
+    if selection_mode:
+        # Show selection panel
+        tk_canvas.itemconfig(selection_panel_bg, state="normal")
+        tk_canvas.itemconfig(selection_panel_title, state="normal")
+        
+        # Create selection options display
+        blink_patterns = ['.', '-', '..', '--']
+        y_start = 150
+        x_char = 900   # Character position
+        x_pattern = 1000  # Pattern instruction position
+        
+        for i, char in enumerate(selection_options):
+            if i < len(blink_patterns):
+                # Character display
+                char_text = tk_canvas.create_text(
+                    x_char, y_start + (i * 80),
+                    text=f"{char}",
+                    fill="#00fff7",
+                    font=("Courier", 36, "bold"),
+                    anchor="w"
+                )
+                selection_option_texts.append(char_text)
+                
+                # Blink pattern instruction
+                pattern_text = tk_canvas.create_text(
+                    x_pattern, y_start + (i * 80) - 20,
+                    text=f"Blink: {blink_patterns[i]}",
+                    fill="#ffaa00",
+                    font=("Courier", 14, "bold"),
+                    anchor="w"
+                )
+                selection_option_texts.append(pattern_text)
+                
+                # Description
+                desc_text = tk_canvas.create_text(
+                    x_pattern, y_start + (i * 80) + 10,
+                    text=f"({blink_patterns[i].replace('.', 'short').replace('-', 'long')} blink)",
+                    fill="#888888",
+                    font=("Courier", 10, "italic"),
+                    anchor="w"
+                )
+                selection_option_texts.append(desc_text)
+        
+        # Current input display
+        current_input_text = tk_canvas.create_text(
+            1210, 460,
+            text=f"Current Input: {selection_morse}",
+            fill="#00ffe0",
+            font=("Courier", 14, "bold")
+        )
+        selection_option_texts.append(current_input_text)
+        
+        # Timeout display
+        remaining_time = max(0, SELECTION_TIMEOUT - (time.time() - selection_start_time))
+        timeout_text = tk_canvas.create_text(
+            1210, 485,
+            text=f"Timeout: {remaining_time:.1f}s",
+            fill="#ff6666",
+            font=("Courier", 12)
+        )
+        selection_option_texts.append(timeout_text)
+        
+    else:
+        # Hide selection panel
+        tk_canvas.itemconfig(selection_panel_bg, state="hidden")
+        tk_canvas.itemconfig(selection_panel_title, state="hidden")
 
 # GUI Update Loop
 def update():
     global state, blink_start, last_blink_time, morse, decoded
     global backspace_mode, backspace_start, last_delete_time, ignore_input_until
+    global selection_mode, selection_start_time, selection_morse
+    
     ret, frame = cap.read()
     if not ret:
         tk_root.after(10, update)
@@ -217,6 +435,12 @@ def update():
     results = face_mesh.process(rgb)
     now = time.time()
 
+    # Check selection timeout
+    if selection_mode and now - selection_start_time > SELECTION_TIMEOUT:
+        decoded += selection_options[0]
+        selection_mode = False
+        selection_morse = ''
+
     if results.multi_face_landmarks:
         landmarks = results.multi_face_landmarks[0].landmark
         left_ear = compute_EAR(landmarks, LEFT_EYE, w, h)
@@ -226,7 +450,7 @@ def update():
         wink_right = right_ear < EAR_THRESHOLD and left_ear > EAR_THRESHOLD
         wink_detected = wink_left or wink_right
 
-        if wink_detected:
+        if wink_detected and not selection_mode:
             if not backspace_mode:
                 if backspace_start == 0:
                     backspace_start = now
@@ -234,7 +458,7 @@ def update():
                     backspace_mode = True
                     last_delete_time = now
         else:
-            if backspace_mode:
+            if backspace_mode and not selection_mode:
                 ignore_input_until = now + COOLDOWN_AFTER_BACKSPACE
             backspace_mode = False
             backspace_start = 0
@@ -252,29 +476,62 @@ def update():
             elif left_ear >= EAR_THRESHOLD and right_ear >= EAR_THRESHOLD:
                 if state == 'closed':
                     blink_duration = now - blink_start
-                    if blink_duration < DOT_DURATION:
-                        morse += '.'
+                    
+                    if selection_mode:
+                        handle_selection_blink(blink_duration)
                     else:
-                        morse += '-'
+                        if blink_duration < DOT_DURATION:
+                            morse += '.'
+                        else:
+                            morse += '-'
                     last_blink_time = now
-                    state = 'open'
+                state = 'open'
 
     pause = now - last_blink_time
-    if state == 'open':
-        if morse and pause >= LETTER_PAUSE and now > ignore_input_until:
-            decoded += MORSE_MAPS[current_language].get(morse, '?')
-            morse = ''
+    
+    if selection_mode:
+        if selection_morse and pause >= SELECTION_LETTER_PAUSE:
+            process_selection_morse()
             last_blink_time = now
-        elif not morse and pause >= WORD_PAUSE:
-            decoded += ' '
-            last_blink_time = now
+    else:
+        if state == 'open' and not selection_mode:
+            if morse and pause >= LETTER_PAUSE and now > ignore_input_until:
+                char = decode_morse_with_disambiguation(morse, current_language)
+                if char is not None:
+                    decoded += char
+                morse = ''
+                last_blink_time = now
+            elif not morse and pause >= WORD_PAUSE:
+                decoded += ' '
+                last_blink_time = now
 
-    tk_canvas.itemconfig(morse_label, text=morse)
+    # Update selection panel
+    update_selection_panel()
+
+    # Update GUI elements
+    if selection_mode:
+        tk_canvas.itemconfig(morse_label, text=f"Selection: {selection_morse}")
+    else:
+        tk_canvas.itemconfig(morse_label, text=morse)
+    
     # Update message in scrolled text
     msg_text.configure(state="normal")
     msg_text.delete("1.0", tk.END)
     msg_text.insert(tk.END, decoded)
     msg_text.configure(state="disabled")
+    
+    # Update selection display
+    if selection_mode:
+        selection_text = f"Selection Mode Active - Check side panel for options | Current input: {selection_morse}"
+        tk_canvas.itemconfig(selection_label, text=selection_text)
+    else:
+        tk_canvas.itemconfig(selection_label, text="")
+    
+    # Update language info
+    ambiguous_count = len(AMBIGUOUS_MAPPINGS.get(current_language, {}))
+    lang_info = f"{ambiguous_count} ambiguous patterns"
+    tk_canvas.itemconfig(lang_info_label, text=lang_info)
+    
     tk_canvas.itemconfig(backspace_label, text="Backspace Mode Active" if backspace_mode else "")
 
     img = Image.fromarray(rgb)
